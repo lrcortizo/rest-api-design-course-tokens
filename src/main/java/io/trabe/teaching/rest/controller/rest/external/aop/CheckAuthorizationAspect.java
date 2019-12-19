@@ -1,16 +1,23 @@
 package io.trabe.teaching.rest.controller.rest.external.aop;
 
+import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Optional;
+
 import javax.servlet.http.HttpServletRequest;
 
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.annotation.Pointcut;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import io.trabe.teaching.rest.controller.rest.external.annotation.CheckPrivileges;
+import io.trabe.teaching.rest.model.exception.NotEnoughPrivilegesException;
 import io.trabe.teaching.rest.model.service.AuthorizationService;
 
 @Component
@@ -45,12 +52,24 @@ public class CheckAuthorizationAspect {
 
     @Before("publicMethod() && withinApplicationRestController() && methodAnnotatedWithCheckPrivileges()")
     public void checkAuthorization(JoinPoint joinPoint) {
-        String userName = (String) getRequest().getAttribute(Constants.USER_ID_ATTRIBUTE);
+    	String userName = (String) getRequest().getAttribute(Constants.USER_ID_ATTRIBUTE);
+        List<Long> authorizedIds = authorizationService.getAuthorizedUsersForLogin(userName);
 
-        // Your implementation: get authorized ids form service and check permissions. You need to retrieve the userId
-        // From the joinPoint. Throw NotEnoughPrivilegesException if the user is not authorized. Remember to map the
-        // exceptions in the advice
+        // Retrieve annotation
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+        Method method = signature.getMethod();
+        CheckPrivileges annotation = method.getAnnotation(CheckPrivileges.class);
 
+        // Check authorization
+        Optional<Long> userIdParameterOptional = aopUtils.getParam(joinPoint, annotation.value(), Long.class);
+
+        if (userIdParameterOptional.isPresent()) {
+            if (!authorizedIds.contains(userIdParameterOptional.get())) {
+                throw new NotEnoughPrivilegesException(
+                        String.format("Api client [%s] is trying to access user [%d] without the proper permissions",
+                                userName, userIdParameterOptional.get()));
+            }
+        }
     }
 
 
